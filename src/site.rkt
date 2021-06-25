@@ -604,9 +604,27 @@
       (string-append (date->string (seconds->date utc #f) #t) " (UTC)")
       "N/A"))
 
-(define (get-implied-docs pkg)
+(define (get-implied-docs pkg #:metapackage-implies-index [implies-index #hash()])
+  ;; "foo" is a metapackage for e.g. "foo-lib" or "foo-tests" if foo-lib has a tag
+  ;; "foo", and "foo" implies "foo-lib".
+  (define metapackage-names
+    (for*/list ([tag-which-could-be-a-pkg-name (package-tags pkg)]
+                [tag-implies (in-value (hash-ref implies-index tag-which-could-be-a-pkg-name (λ () #f)))]
+                #:when tag-implies
+                #:when (set-member? tag-implies (package-name pkg)))
+      (string->symbol tag-which-could-be-a-pkg-name)))
+  (define docs-from-metapackages
+    (append-map (λ (pkg) (append (package-docs pkg)
+                                 ;; a metapackage won't have itself a metapackage, so we
+                                 ;; pass an empty hash to prevent further metapackage lookup.
+                                 (get-implied-docs pkg #:metapackage-implies-index #hash())))
+                (package-batch-detail metapackage-names)))
+
   (define implied-names (map string->symbol (package-implies pkg)))
-  (append-map package-docs (package-batch-detail implied-names)))
+  (define docs-from-implied-pkgs (append-map package-docs (package-batch-detail implied-names)))
+
+  (append docs-from-metapackages
+          docs-from-implied-pkgs))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Package hashtable getters.
@@ -701,10 +719,17 @@
   ;; representing packages with outstanding build errors or
   ;; failing tests, or which are missing docs or tags.
   (define now (/ (current-inexact-milliseconds) 1000))
+  (define pkgs-details (package-batch-detail package-names))
+  (define implies-index
+    (for/hash ([pkg pkgs-details])
+      (values (package-name pkg)
+              (list->set (package-implies pkg)))))
   (define-values (pkg-rows num-todos)
     (for/fold ([pkg-rows null] [num-todos 0])
-              ([pkg (package-batch-detail package-names)])
-      (define pkg-docs (append (package-docs pkg) (get-implied-docs pkg)))
+              ([pkg pkgs-details])
+      (define pkg-docs (remove-duplicates
+                        (append (package-docs pkg)
+                                (get-implied-docs pkg #:metapackage-implies-index implies-index))))
       (define has-docs? (pair? pkg-docs))
       (define has-readme? (pair? (package-readme-url pkg)))
       (define has-tags? (pair? (package-tags pkg)))
