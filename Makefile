@@ -25,13 +25,13 @@ clean:
 keys: private-key.pem server-cert.pem
 
 private-key.pem:
-	openssl genrsa -des3 -passout pass:a -out $@ 1024
-	openssl rsa -passin pass:a -in $@ -out $@
+	openssl genrsa -des3 -passout pass:dummy -out $@ 4096
+	openssl rsa -passin pass:dummy -in $@ -out $@
 
 server-cert.pem: private-key.pem
 	openssl req -new -x509 -nodes -sha1 -days 365 \
 		-subj /CN=beta.package.database.site \
-		-passin pass:a \
+		-passin pass:dummy \
 		-key private-key.pem > $@
 
 clean-keys:
